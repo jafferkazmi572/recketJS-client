@@ -1,0 +1,25 @@
+{
+  "name": "racketJS-client",
+  "version": "1.0.0",
+  "main": "index.js",
+  "author": "Jaffer Kazmi (@jafferkazmi572)",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/jafferkazmi572/recketjs-client",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jafferkazmi572/recketjs.git"
+  },
+  "keywords": ["websocket", "socket.io alternative", "recket", "request-response", "typescript"],
+  "scripts" :{
+    "dev": "ts-node src/index.ts"
+  },
+  "dependencies": {
+    "@types/node": "^22.13.10",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.2",
+    "ws": "^8.18.1"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.0"
+  }
+}
