@@ -8,6 +8,16 @@
 
 ---
 
+### 📢 **Notice: Beta Release**
+
+> This package is currently in **active development** and is released under a **beta version**.  
+> While it's functional, some APIs may change and issues may arise.  
+> Please use it, test it, and report any bugs or suggestions on the [GitHub Issues page](https://github.com/jafferkazmi572/recketJS-client/issues).  
+>  
+> Contributions are welcome in the form of feedback or issue reports — **code-level contributions are currently restricted** while the core API is being finalized.
+
+---
+
 ## 📦 Installation
 
 ### NPM
