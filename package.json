@@ -1,5 +1,5 @@
 {
-  "name": "racketjs-client",
+  "name": "recketjs-client",
   "version": "0.1.0-beta",
   "description": "Lightweight WebSocket client with native request-response support, event listeners, and full compatibility with RecketJS Server.",
  "main": "dist/index.js",  

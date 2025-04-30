@@ -38,9 +38,9 @@ This project is licensed under the [Apache License 2.0](./LICENSE) © 2025 [jaff
 ## 🧪 Getting Started
 
 ```javascript
-import RacketClient from "recketjs-client";
+import RecketClient from "recketjs-client";
 
-const client = new RacketClient("ws://localhost:3000/chat", "/recket", { token: "xyz" });
+const client = new RecketClient("ws://localhost:3000/chat", "/recket", { token: "xyz" });
 
 client.on("connect", () => {
   console.log("✅ Connected to server");
@@ -139,7 +139,7 @@ client.onRequest("endpoint", (data, respond) => {});
 - You can structure connections like:
 
 ```javascript
-new RacketClient("ws://localhost:3000/admin", "/recket")
+new RecketClient("ws://localhost:3000/admin", "/recket")
 ```
  - "/admin" is treated as namespace
  - "/recket" is the base socket path
