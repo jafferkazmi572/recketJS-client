@@ -2,6 +2,8 @@
 
 **RecketJS Client** is a WebSocket-based communication library that provides an HTTP-like request-response mechanism and event-based communication, just like Socket.IO — but with a lightweight and modular design.
 
+> Event-driven WebSockets with built-in request-response and no compromise
+
 > ⚡ Use it in both **Node.js** and **Browser** environments.
 
 ---
