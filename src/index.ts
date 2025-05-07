@@ -7,75 +7,35 @@
 type EventHandler = (data?: any) => void;
 
 class RecketClient {
-    private socket: WebSocket;
+    private socket!: WebSocket;
     private events: Map<string, EventHandler> = new Map();
     private requestHandlers: Map<string, (data: any, respond: (data: any, error?:  { code: number; message: string }) => void) => void> = new Map();
     private pendingRequests: Map<string, { resolve: Function; reject: Function; timeout: NodeJS.Timeout }> = new Map();
     private allowServerRequests = false;
+    private reconnectionAttempts = 5;
+    private reconnectionDelay = 1000; // milliseconds
+    private shouldReconnect = true;
+    private currentAttempt = 0;
+    private isManuallyDisconnected = false;
+    private eventQueue: Array<{ event: string; data?: any }> = [];
     private namespace: string = '/';  // Default namespace (to be handled later)
-    private query: Record<string, string>; 
+    private query!: Record<string, string>;
+    private baseUrl!: string;
+    private socketPath!: string;
 
-    constructor(url: string , socketPath:string, query: Record<string, string> = {}) {
+    constructor(url: string , socketPath:string, query: Record<string, string> = {}, options: {
+        reconnectionAttempts?: number;
+        reconnectionDelay?: number;
+        shouldReconnect?: boolean;
+      } = {} ) {
         // **Select WebSocket implementation based on environment**
-        const WebSocketImpl = (typeof window !== "undefined" && window.WebSocket)
-            ? window.WebSocket  // Browser WebSocket
-            : require("ws");    // Node.js WebSocket (ws package)
-
+        this.baseUrl = url;
+        this.socketPath =  socketPath;
         this.query = query;
-        const parsedUrl = new URL(url);
-        const path = socketPath || "/recket";
-        const namespace = parsedUrl.pathname && parsedUrl?.pathname !== '/' ? parsedUrl?.pathname : "";
-        const connectionUrl = `${parsedUrl.protocol}//${parsedUrl.hostname}:${parsedUrl.port}${path}${namespace}`;
-        Object.entries(query).forEach(([key, value]) => {
-            parsedUrl.searchParams.append(key, value);
-        });   
-        
-        const fullConnectionUrl = `${connectionUrl}?${new URLSearchParams(parsedUrl.searchParams).toString()}`;
-
-        // **Initialize WebSocket connection**
-        this.socket = new WebSocketImpl(fullConnectionUrl);
-
-        // **Handle incoming messages**
-        this.socket.onmessage = (message) => {
-            try {
-                const { event, data, request, response } = JSON.parse(message.data);
-                if(request?.id && request?.endpoint){
-                    if(!this.allowServerRequests){
-                        return;
-                    }
-                    this.handleIncomingRequest({id: request?.id,endpoint:request?.endpoint,data:request?.data})
-                }
-                else if (response?.id && (response?.data || response?.error))
-                    this.handleIncomingResponse({id:response?.id,data:response?.data,error:response?.error})
-                else if(event === '__system_handshake_ack')
-                    this.events.get("connect")?.(); // Fire "connect" event
-                else
-                    this.events.get(event)?.(data); 
-            } catch (error) {
-                console.error("Error parsing message:", error);
-            }
-        };
-
-        // **Handle connection open**
-        this.socket.onopen = () => {
-          //  this.events.get("connect")?.(); // Fire "connect" event
-        };
-
-        // **Handle connection close**
-        this.socket.onclose = () => {
-            this.events.get("disconnect")?.(); // Fire "disconnect" event
-            this.pendingRequests.forEach(({ reject,timeout }) => {
-                clearTimeout(timeout);
-                reject({ code: 503, message: "WebSocket connection closed" });
-            });
-            this.pendingRequests.clear();
-            
-        };
-
-        // **Handle errors**
-        this.socket.onerror = (error) => {
-            console.error("WebSocket error:", error);
-        };
+        this.reconnectionAttempts = options.reconnectionAttempts ?? 5;
+        this.reconnectionDelay = options.reconnectionDelay ?? 1000;
+        this.shouldReconnect = options.shouldReconnect ?? true;
+        this.initializeSocket()
     }
 
     enableServerRequests() {
@@ -107,6 +67,12 @@ class RecketClient {
 
     // **Emit events to server**
     emit(event: string, data?: any) {
+        if (this.socket.readyState !== WebSocket.OPEN) {
+            if (!this.isManuallyDisconnected) {
+                this.eventQueue.push({ event, data });
+            }
+            return;
+        }
         const payload = JSON.stringify({ event, data });
         this.socket.send(payload);
     }
@@ -163,9 +129,121 @@ class RecketClient {
             }
         }
     }
+
+    private tryReconnect() {
+        if (this.currentAttempt >= this.reconnectionAttempts) {
+            console.warn("❌ Reconnection failed: Max attempts reached");
+            this.events.get("reconnect_failed")?.();
+            return;
+        }
+    
+        setTimeout(() => {
+            this.currentAttempt++;
+            console.log(`🔁 Reconnecting... attempt ${this.currentAttempt}`);
+            this.reconnectResume();
+            this.reconnectionDelay = Math.min(30000, this.reconnectionDelay * 2);
+        }, this.reconnectionDelay);
+    }
+
+    private flushEventQueue() {
+        this.eventQueue.forEach(({ event, data }) => this.emit(event, data));
+        this.eventQueue = [];
+    }
+
+    private clearPendingRequests() {
+        this.pendingRequests.forEach(({ reject, timeout }) => {
+            clearTimeout(timeout);
+            reject({ code: 503, message: "WebSocket connection closed" });
+        });
+        this.pendingRequests.clear();
+    }
+
+    private initializeSocket() {
+                // **Select WebSocket implementation based on environment**
+                const WebSocketImpl = (typeof window !== "undefined" && window.WebSocket)
+                ? window.WebSocket  // Browser WebSocket
+                : require("ws");    // Node.js WebSocket (ws package)
+    
+            const parsedUrl = new URL(this.baseUrl);
+            const path = this.socketPath || "/recket";
+            const namespace = parsedUrl.pathname && parsedUrl?.pathname !== '/' ? parsedUrl?.pathname : "";
+            const connectionUrl = `${parsedUrl.protocol}//${parsedUrl.hostname}:${parsedUrl.port}${path}${namespace}`;
+            Object.entries(this.query).forEach(([key, value]) => {
+                parsedUrl.searchParams.append(key, value);
+            });   
+            
+            const fullConnectionUrl = `${connectionUrl}?${new URLSearchParams(parsedUrl.searchParams).toString()}`;
+    
+            // **Initialize WebSocket connection**
+            this.socket = new WebSocketImpl(fullConnectionUrl);
+    
+            // **Handle incoming messages**
+            this.socket.onmessage = (message) => {
+                try {
+                    const { event, data, request, response } = JSON.parse(message.data);
+                    if(request?.id && request?.endpoint){
+                        if(!this.allowServerRequests){
+                            return;
+                        }
+                        this.handleIncomingRequest({id: request?.id,endpoint:request?.endpoint,data:request?.data})
+                    }
+                    else if (response?.id && (response?.data || response?.error))
+                        this.handleIncomingResponse({id:response?.id,data:response?.data,error:response?.error})
+                    else if(event === '__system_handshake_ack')
+                        this.events.get("connect")?.(); // Fire "connect" event
+                    else
+                        this.events.get(event)?.(data); 
+                } catch (error) {
+                    console.error("Error parsing message:", error);
+                }
+            };
+    
+            // **Handle connection close**
+            this.socket.onclose = () => {
+                this.events.get("disconnect")?.();
+                this.clearPendingRequests();
+            
+                if (!this.isManuallyDisconnected && this.shouldReconnect) {
+                    this.tryReconnect();
+                }
+            }
+    
+            // **Handle errors**
+            this.socket.onerror = (error) => {
+                console.error("WebSocket error:", error);
+            };
+    
+            this.socket.onopen = () => {
+                if (this.currentAttempt > 0) {
+                    this.events.get("reconnect")?.();
+                }
+                this.currentAttempt = 0;
+                this.shouldReconnect = true
+                this.isManuallyDisconnected = false;
+                this.reconnectionDelay = 1000;
+                this.flushEventQueue();
+            }; 
+    }
+    
+    reconnectResume() {
+        if (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING) return;
+        this.initializeSocket();
+    }
+    
+    disconnect() {
+        if (this.socket.readyState !== WebSocket.OPEN && this.socket.readyState !== WebSocket.CONNECTING) return;
+        this.isManuallyDisconnected = true;
+        this.shouldReconnect = false;
+        this.eventQueue = [];
+        this.socket.close();
+    }
     
     request(endpoint: string, data: any, timeoutDuration: number =300000): Promise<any> {
         return new Promise((resolve, reject) => {
+            if (this.isManuallyDisconnected) {
+                reject({ code: 400, message: "Connection manually disconnected" });
+                return;
+            }            
 
             if (this.socket.readyState !== WebSocket.OPEN) {
                 reject({ code: 503, message: "WebSocket is not connected" });
@@ -189,6 +267,10 @@ class RecketClient {
             }
         });
     }
+
+    get isConnected(): boolean {
+        return this.socket.readyState === WebSocket.OPEN;
+    }    
     
 }
 

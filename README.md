@@ -90,12 +90,72 @@ client.onRequest("ping", (data, respond) => {
 client.disableServerRequests();
 ```
 
+## 🔌 Reconnection Support
+
+RecketJS handles reconnection automatically — with full control:
+
+### Default Behavior:
+
+ - Auto-reconnect with exponential backoff
+
+ - Pending requests are cleared on disconnect (like HTTP)
+
+ - Queued events are stored during disconnection and sent automatically after reconnection
+
+ - Reconnection events keep you in control
+
+### Options (during construction):
+
+```javascript
+const client = new RecketClient(url, path, query, {
+  reconnect: true,          // default
+  reconnectAttempts: 5,     // default: Infinity
+  reconnectDelay: 1000,     // base delay in ms
+  maxReconnectDelay: 10000, // max backoff delay
+});
+```
+
+### Manual Disconnect
+
+```javascript
+client.disconnect();
+// Prevents auto-reconnect & clears pending queues
+```
+
+### Resume Connection
+
+```javascript
+client.reconnectResume();
+// Manually resume after a disconnect
+```
+
+### 📥 Event Queuing:
+
+- If you emit events while disconnected, they are automatically queued and sent after reconnection:
+```javascript
+client.emit("my_event", { foo: "bar" }); // safely queued if disconnected
+```
+- You don’t need to check connection state — RecketJS handles it.
+
+### 📡 Reconnection Events:
+
+```javascript
+client.on("reconnect", (attempt) => {
+  console.log("🔄 Reconnected after", attempt, "attempt(s)");
+});
+
+client.on("reconnect_failed", () => {
+  console.log("❌ Could not reconnect to the server");
+});
+```
+
 ## 🧠 API Reference
 
-### constructor(url, socketPath, query)
+### constructor(url, socketPath?, query?, options?)
  - url – WebSocket URL with namespace (e.g., ws://localhost:3000/chat)
  - socketPath – Optional, defaults to "/recket"
  - query – Optional object { key: value } appended to query string
+ - options: optional reconnection config (see above)
 
 ### on(event, handler)
 - Attach event listeners:
@@ -132,6 +192,12 @@ client.onRequest("endpoint", (data, respond) => {});
 ### disableServerRequests()
 - Disable server-initiated requests
 
+### disconnect()
+- Manually close connection and disable auto-reconnect
+
+### reconnectResume()
+- Resume connection after manual disconnect
+
 ### close()
 - Close WebSocket connection
 
@@ -152,6 +218,8 @@ new RecketClient("ws://localhost:3000/admin", "/recket")
 - Common errors are handled automatically:
 
  - Connection closed
+
+ - Unexpected disconnection
 
  - Timeout
 
